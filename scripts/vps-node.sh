@@ -80,36 +80,36 @@ rand_hex(){ openssl rand -hex 16 | tr -d '\n'; }
 uuid(){ cat /proc/sys/kernel/random/uuid; }
 CERT="$CONFIG_DIR/certs/$TAG_PREFIX.crt"; KEY="$CONFIG_DIR/certs/$TAG_PREFIX.key"
 if [ ! -s "$CERT" ] || [ ! -s "$KEY" ]; then openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=$SNI" -keyout "$KEY" -out "$CERT" >/dev/null 2>&1; chmod 600 "$KEY"; chmod 644 "$CERT"; fi
-port=$PORT; first=1; OUT="$CONFIG_DIR/conf.d/${TAG_PREFIX}-${PORT}.json"; OLD_SS_PW=; [ -f "$OUT" ] && OLD_SS_PW=$(sed -n "s/.*\"tag\":\"$TAG_PREFIX-ss2022\".*\"password\":\"\([^\"]*\)\".*/\1/p" "$OUT" | head -n1 || true); rm -f "$OUT"; printf '{"inbounds":[' > "$OUT"
+BASE_PORT=$PORT; port=$PORT; first=1; OUT="$CONFIG_DIR/conf.d/${TAG_PREFIX}-${PORT}.json"; OLD_SS_PW=; [ -f "$OUT" ] && OLD_SS_PW=$(sed -n "s/.*\"type\":\"shadowsocks\".*\"password\":\"\([^\"]*\)\".*/\1/p" "$OUT" | head -n1 || true); rm -f "$OUT"; printf '{"inbounds":[' > "$OUT"
 add_json(){ [ "$first" -eq 1 ] || printf ',' >> "$OUT"; first=0; cat >> "$OUT"; }
 if contains "$PROTOCOLS" ss2022; then
  ss_pw=${OLD_SS_PW:-$(rand_b64)}; add_json <<EOF
-{"type":"shadowsocks","tag":"$TAG_PREFIX-ss2022","listen":"::","listen_port":$port,"method":"2022-blake3-aes-256-gcm","password":"$ss_pw"}
+{"type":"shadowsocks","tag":"$TAG_PREFIX-$BASE_PORT-ss2022","listen":"::","listen_port":$port,"method":"2022-blake3-aes-256-gcm","password":"$ss_pw"}
 EOF
- SS_URI="ss://$(printf '%s' "2022-blake3-aes-256-gcm:$ss_pw" | base64 | tr -d '\n')@[$PUBLIC_V6]:$port#$TAG_PREFIX-ss2022"; port=$((port+1))
+ SS_URI="ss://$(printf '%s' "2022-blake3-aes-256-gcm:$ss_pw" | base64 | tr -d '\n')@[$PUBLIC_V6]:$port#$TAG_PREFIX-$BASE_PORT-ss2022"; port=$((port+1))
 fi
 if contains "$PROTOCOLS" anytls; then
  any_pw=$(rand_hex); add_json <<EOF
-{"type":"anytls","tag":"$TAG_PREFIX-anytls","listen":"::","listen_port":$port,"users":[{"name":"default","password":"$any_pw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
+{"type":"anytls","tag":"$TAG_PREFIX-$BASE_PORT-anytls","listen":"::","listen_port":$port,"users":[{"name":"default","password":"$any_pw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
 EOF
  port=$((port+1))
 fi
 if contains "$PROTOCOLS" reality; then
  keys=$($SB_BIN generate reality-keypair 2>/dev/null) || die 'Reality key generation failed'; private=$(printf '%s\n' "$keys" | sed -n 's/^PrivateKey: //p'); public=$(printf '%s\n' "$keys" | sed -n 's/^PublicKey: //p'); rid=$(openssl rand -hex 4); ruuid=$(uuid)
  add_json <<EOF
-{"type":"vless","tag":"$TAG_PREFIX-reality","listen":"::","listen_port":$port,"users":[{"uuid":"$ruuid"}],"tls":{"enabled":true,"server_name":"$SNI","reality":{"enabled":true,"handshake":{"server":"$SNI","server_port":443},"private_key":"$private","short_id":["$rid"]}}}
+{"type":"vless","tag":"$TAG_PREFIX-$BASE_PORT-reality","listen":"::","listen_port":$port,"users":[{"uuid":"$ruuid"}],"tls":{"enabled":true,"server_name":"$SNI","reality":{"enabled":true,"handshake":{"server":"$SNI","server_port":443},"private_key":"$private","short_id":["$rid"]}}}
 EOF
  port=$((port+1))
 fi
 if contains "$PROTOCOLS" hysteria2; then
  hpw=$(rand_b64); add_json <<EOF
-{"type":"hysteria2","tag":"$TAG_PREFIX-hysteria2","listen":"::","listen_port":$port,"users":[{"password":"$hpw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
+{"type":"hysteria2","tag":"$TAG_PREFIX-$BASE_PORT-hysteria2","listen":"::","listen_port":$port,"users":[{"password":"$hpw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
 EOF
  port=$((port+1))
 fi
 if contains "$PROTOCOLS" tuic; then
  tuic_uuid=$(uuid); tuic_pw=$(rand_hex); add_json <<EOF
-{"type":"tuic","tag":"$TAG_PREFIX-tuic","listen":"::","listen_port":$port,"users":[{"uuid":"$tuic_uuid","password":"$tuic_pw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
+{"type":"tuic","tag":"$TAG_PREFIX-$BASE_PORT-tuic","listen":"::","listen_port":$port,"users":[{"uuid":"$tuic_uuid","password":"$tuic_pw"}],"tls":{"enabled":true,"certificate_path":"$CERT","key_path":"$KEY"}}
 EOF
  port=$((port+1))
 fi
