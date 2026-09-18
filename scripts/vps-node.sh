@@ -141,15 +141,20 @@ set -eu
 CONF_DIR=${SING_BOX_CONFIG_DIR:-/etc/sing-box}
 NODE_DIR="$CONF_DIR/conf.d"
 BACKUP_DIR="$CONF_DIR/backups"
-GREEN='\033[32m'; CYAN='\033[36m'; RED='\033[31m'; RESET='\033[0m'
+GREEN=$(printf '\033[32m'); CYAN=$(printf '\033[36m'); RED=$(printf '\033[31m'); RESET=$(printf '\033[0m')
 svc(){ if command -v systemctl >/dev/null 2>&1; then systemctl "$1" sing-box; elif command -v rc-service >/dev/null 2>&1; then if rc-service sing-box-vps-node status >/dev/null 2>&1; then rc-service sing-box-vps-node "$1"; else rc-service sing-box "$1"; fi; fi; }
 files(){ set -- "$NODE_DIR"/vps-node-*.json; [ -e "$1" ] && printf '%s\n' "$@"; }
 count(){ files | wc -l | tr -d ' '; }
 header(){
- os=unknown; [ -r /etc/os-release ] && . /etc/os-release && os=${PRETTY_NAME:-$ID}; ver=$(sing-box version 2>/dev/null | sed -n 's/^sing-box version //p' | head -n1); state=stopped; svc status >/dev/null 2>&1 && state=running
- printf '\n%s==== singbox-v6 · sing-box 管理器 ====%s\n' "$CYAN" "$RESET"
- printf '%s系统%s %s · %ssing-box%s %s\n' "$CYAN" "$RESET" "$os" "$CYAN" "$RESET" "${ver:-unknown}"
- printf '%s服务%s %s%s%s · 节点 %s\n\n' "$CYAN" "$RESET" "$GREEN" "$state" "$RESET" "$(count)"
+ os=unknown; [ -r /etc/os-release ] && . /etc/os-release && os=${PRETTY_NAME:-$ID}; ver=$(sing-box version 2>/dev/null | sed -n 's/^sing-box version //p' | head -n1); state=停止; pidof sing-box >/dev/null 2>&1 && state=运行中
+ printf '%s    ____  ____\n' "$CYAN"
+ printf '%s   / ___|| __ )   sb · sing-box 管理器\n' "$CYAN"
+ printf '%s   \\___ \\  _ \\   版本 %s\n' "$CYAN" "${ver:-unknown}"
+ printf '%s  |____/|____/\n' "$CYAN"
+ printf '%s----------------------------------------%s\n' "$CYAN" "$RESET"
+ printf '系统 %s%s%s · 模式 %s%s%s · 核心 %s\n' "$CYAN" "$os" "$RESET" "$CYAN" "${INIT:-auto}" "$RESET" "${ver:-unknown}"
+ printf '服务 %s%s%s · 节点 %s · 转发 0\n' "$GREEN" "$state" "$RESET" "$(count)"
+ printf '%s----------------------------------------%s\n\n' "$CYAN" "$RESET"
 }
 choose(){
  i=1; chosen=''; for f in $(files); do printf '[%s] %s\n' "$i" "${f##*/}"; eval "f$i=\"$f\""; i=$((i+1)); done
@@ -180,8 +185,13 @@ menu(){
  while :; do
   header
   printf '%s【节点管理】%s\n' "$CYAN" "$RESET"
-  printf '[1] 添加节点       [2] 节点列表       [3] 节点详情\n[4] 导出链接       [7] 启用/禁用       [10] 删除节点\n[18] 删除全部节点\n\n'
-  printf '%s【服务与维护】%s\n[11] 服务状态       [12] 重启服务       [13] 创建备份\n[14] 恢复提示       [16] 系统诊断\n\n%s[0] 退出%s\n' "$CYAN" "$RESET" "$RED" "$RESET"
+  printf '[1] 添加节点       [2] 节点列表       [3] 节点详情\n'
+  printf '[4] 导出链接       [7] 启用/禁用       [10] 删除节点\n'
+  printf '[18] 删除全部节点\n\n'
+  printf '%s【服务与维护】%s\n' "$CYAN" "$RESET"
+  printf '[11] 服务状态       [12] 重启服务       [13] 创建备份\n'
+  printf '[14] 恢复提示         [16] 系统诊断\n\n'
+  printf '%s[0] 退出管理器%s\n\n' "$RED" "$RESET"
   printf '请选择操作 [0-18]: '; read -r op </dev/tty || exit 0
   case "$op" in
    1) add_node;; 2) files || true;; 3) node_detail;; 4) node_export;; 7) node_toggle;; 10) delete_node;;
