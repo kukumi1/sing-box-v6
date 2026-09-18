@@ -139,30 +139,61 @@ cat >/usr/local/bin/singbox-v6 <<'HELPER'
 #!/bin/sh
 set -eu
 CONF_DIR=${SING_BOX_CONFIG_DIR:-/etc/sing-box}
-service_status(){
-  if command -v systemctl >/dev/null 2>&1; then systemctl "$1" sing-box
-  elif command -v rc-service >/dev/null 2>&1; then
-    if rc-service sing-box-vps-node status >/dev/null 2>&1; then rc-service sing-box-vps-node "$1"; else rc-service sing-box "$1"; fi
-  fi
+NODE_DIR="$CONF_DIR/conf.d"
+BACKUP_DIR="$CONF_DIR/backups"
+GREEN='\033[32m'; CYAN='\033[36m'; RED='\033[31m'; RESET='\033[0m'
+svc(){ if command -v systemctl >/dev/null 2>&1; then systemctl "$1" sing-box; elif command -v rc-service >/dev/null 2>&1; then if rc-service sing-box-vps-node status >/dev/null 2>&1; then rc-service sing-box-vps-node "$1"; else rc-service sing-box "$1"; fi; fi; }
+files(){ set -- "$NODE_DIR"/vps-node-*.json; [ -e "$1" ] && printf '%s\n' "$@"; }
+count(){ files | wc -l | tr -d ' '; }
+header(){
+ os=unknown; [ -r /etc/os-release ] && . /etc/os-release && os=${PRETTY_NAME:-$ID}; ver=$(sing-box version 2>/dev/null | sed -n 's/^sing-box version //p' | head -n1); state=stopped; svc status >/dev/null 2>&1 && state=running
+ printf '\n%s==== singbox-v6 · sing-box 管理器 ====%s\n' "$CYAN" "$RESET"
+ printf '%s系统%s %s · %ssing-box%s %s\n' "$CYAN" "$RESET" "$os" "$CYAN" "$RESET" "${ver:-unknown}"
+ printf '%s服务%s %s%s%s · 节点 %s\n\n' "$CYAN" "$RESET" "$GREEN" "$state" "$RESET" "$(count)"
 }
-case "${1:-help}" in
-  status) service_status status ;;
-  restart) service_status restart ;;
-  nodes) ls -1 "$CONF_DIR/conf.d"/vps-node-*.json 2>/dev/null || echo 'no managed nodes' ;;
-  ports) ss -lntup 2>/dev/null | grep -E 'sing-box|:([0-9]+)' || true ;;
-  check) sing-box check -D /var/lib/sing-box -c "$CONF_DIR/config.json" -C "$CONF_DIR/conf.d" ;;
-  logs) if command -v journalctl >/dev/null 2>&1; then journalctl -u sing-box -n 100 --no-pager; else tail -n 100 /var/log/sing-box.log 2>/dev/null || true; fi ;;
-  help|*) cat <<'USAGE'
-用法：singbox-v6 <命令>
-  status   查看 sing-box 服务状态
-  nodes    查看脚本创建的节点配置
-  ports    查看 TCP/UDP 监听端口
-  check    检查 sing-box 配置
-  logs     查看最近日志
-  restart  重启服务
-USAGE
-  ;;
-esac
+choose(){
+ i=1; chosen=''; for f in $(files); do printf '[%s] %s\n' "$i" "${f##*/}"; eval "f$i=\"$f\""; i=$((i+1)); done
+ [ "$i" -gt 1 ] || { echo '暂无脚本管理节点'; return 1; }
+ printf '选择节点 [1-%s]: ' "$((i-1))"; read -r n </dev/tty || return 1; case "$n" in ''|*[!0-9]*) return 1;; esac
+ eval "chosen=\${f$n:-}"; [ -n "$chosen" ] || return 1
+}
+node_detail(){ choose || return; echo "--- $chosen"; cat "$chosen"; }
+node_export(){
+ choose || return
+ line=$(grep -o '{"type":"shadowsocks"[^}]*}' "$chosen" 2>/dev/null | head -n1 || true)
+ [ -n "$line" ] || { echo '该节点不是 SS2022，暂不生成 SS URI。'; return; }
+ method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p'); pw=$(printf '%s' "$line" | sed -n 's/.*"password":"\([^"]*\)".*/\1/p'); port=$(printf '%s' "$line" | sed -n 's/.*"listen_port":\([0-9]*\).*/\1/p'); addr=$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -vE '^(fd|fc|fe80)' | head -n1 || true); [ -n "$addr" ] || addr=$(curl -6 -fsS --max-time 5 https://api64.ipify.org 2>/dev/null || true)
+ uri=$(printf '%s' "$method:$pw" | base64 | tr -d '\n'); echo "ss://$uri@[$addr]:$port#singbox-v6"
+}
+restart(){ svc restart; }
+add_node(){
+ printf '端口 [65432]: '; read -r p </dev/tty || return; [ -n "$p" ] || p=65432
+ printf '协议 1=SS2022 2=AnyTLS 3=Reality 4=Hysteria2 5=TUIC [1]: '; read -r n </dev/tty || n=1
+ case "$n" in 2) proto=anytls;;3) proto=reality;;4) proto=hysteria2;;5) proto=tuic;;*) proto=ss2022;; esac
+ curl -fsSL 'https://raw.githubusercontent.com/kukumi1/sing-box-v6/main/scripts/vps-node.sh?v=interactive' | sh -s -- --yes --port "$p" --protocols "$proto"
+}
+node_toggle(){ choose || return; case "$chosen" in *.disabled) mv "$chosen" "${chosen%.disabled}";; *) mv "$chosen" "$chosen.disabled";; esac; restart; }
+delete_node(){ choose || return; printf '确认删除 %s？[y/N]: ' "${chosen##*/}"; read -r a </dev/tty || return; case "$a" in y|Y) rm -f "$chosen"; restart;; esac; }
+backup(){ mkdir -p "$BACKUP_DIR"; tar -czf "$BACKUP_DIR/singbox-v6-$(date -u +%Y%m%dT%H%M%SZ).tgz" -C "$CONF_DIR" config.json conf.d certs 2>/dev/null || true; echo '备份已创建。'; }
+diagnostics(){ echo '--- service'; svc status || true; echo '--- listeners'; ss -lntup 2>/dev/null || true; echo '--- config'; sing-box check -D /var/lib/sing-box -c "$CONF_DIR/config.json" -C "$NODE_DIR"; }
+menu(){
+ while :; do
+  header
+  printf '%s【节点管理】%s\n' "$CYAN" "$RESET"
+  printf '[1] 添加节点       [2] 节点列表       [3] 节点详情\n[4] 导出链接       [7] 启用/禁用       [10] 删除节点\n[18] 删除全部节点\n\n'
+  printf '%s【服务与维护】%s\n[11] 服务状态       [12] 重启服务       [13] 创建备份\n[14] 恢复提示       [16] 系统诊断\n\n%s[0] 退出%s\n' "$CYAN" "$RESET" "$RED" "$RESET"
+  printf '请选择操作 [0-18]: '; read -r op </dev/tty || exit 0
+  case "$op" in
+   1) add_node;; 2) files || true;; 3) node_detail;; 4) node_export;; 7) node_toggle;; 10) delete_node;;
+   11) svc status;; 12) restart;; 13) backup;; 14) echo "备份目录：$BACKUP_DIR";; 16) diagnostics;;
+   18) printf '确认删除全部脚本节点？[y/N]: '; read -r a </dev/tty || a=n; case "$a" in y|Y) rm -f "$NODE_DIR"/vps-node-*.json; restart;; esac;;
+   0) exit 0;; *) echo '无效选项';;
+  esac
+  printf '\n按回车继续...'; read -r _ </dev/tty || true
+ done
+}
+case "${1:-menu}" in
+ menu) menu;; status) svc status;; restart) restart;; nodes) files || echo 'no managed nodes';; ports) ss -lntup 2>/dev/null || true;; check) sing-box check -D /var/lib/sing-box -c "$CONF_DIR/config.json" -C "$NODE_DIR";; logs) if command -v journalctl >/dev/null 2>&1; then journalctl -u sing-box -n 100 --no-pager; else tail -n 100 /var/log/sing-box.log 2>/dev/null || true; fi;; help) echo 'singbox-v6 [menu|status|restart|nodes|ports|check|logs]';; *) echo 'unknown command'; exit 2;; esac
 HELPER
 chmod 755 /usr/local/bin/singbox-v6
 echo "NODE_CONFIG=$OUT"; echo "PUBLIC_IPV6=$PUBLIC_V6"; [ -n "${SS_URI:-}" ] && echo "SS2022_URI=$SS_URI"; echo "PORTS=$PORT-$((port-1))"; ss -lntup 2>/dev/null | grep -E "(:$PORT|:$((port-1)))" || true
