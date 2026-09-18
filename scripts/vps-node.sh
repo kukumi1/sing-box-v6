@@ -5,8 +5,12 @@ PROTOCOLS=ss2022
 SNI=developer.apple.com
 CONFIG_DIR=${SING_BOX_CONFIG_DIR:-/etc/sing-box}
 TAG_PREFIX=${SING_BOX_TAG_PREFIX:-vps-node}
+YES=0
+PORT_SET=0
+PROTOCOLS_SET=0
+SNI_SET=0
 usage(){ cat <<EOF
-Usage: vps-node.sh [--port PORT] [--protocols LIST] [--sni HOST]
+Usage: vps-node.sh [--port PORT] [--protocols LIST] [--sni HOST] [--yes]
 LIST: ss2022,anytls,reality,hysteria2,tuic
 EOF
 }
@@ -15,13 +19,22 @@ log(){ printf '[vps-node] %s\n' "$*"; }
 contains(){ printf '%s' ",$1," | grep -q ",$2,"; }
 while [ "$#" -gt 0 ]; do
  case "$1" in
-  --port) PORT=${2:?missing port}; shift 2;;
-  --protocols) PROTOCOLS=${2:?missing protocols}; shift 2;;
-  --sni) SNI=${2:?missing sni}; shift 2;;
+  --port) PORT=${2:?missing port}; PORT_SET=1; shift 2;;
+  --protocols) PROTOCOLS=${2:?missing protocols}; PROTOCOLS_SET=1; shift 2;;
+  --sni) SNI=${2:?missing sni}; SNI_SET=1; shift 2;;
+  --yes) YES=1; shift;;
   -h|--help) usage; exit 0;;
   *) die "unknown argument: $1";;
  esac
 done
+if [ "$YES" -eq 0 ] && [ -r /dev/tty ]; then
+  printf "\n==== sing-box IPv6/NAT 节点安装器 ====\n" >/dev/tty
+  if [ "$PORT_SET" -eq 0 ]; then printf "节点端口 [65432]: " >/dev/tty; IFS= read -r ans </dev/tty || ans=; [ -n "$ans" ] && PORT=$ans; fi
+  if [ "$PROTOCOLS_SET" -eq 0 ]; then printf "协议 (1=ss2022, 2=anytls, 3=reality, 4=hysteria2, 5=tuic) [1]: " >/dev/tty; IFS= read -r ans </dev/tty || ans=; case "$ans" in 2) PROTOCOLS=anytls;; 3) PROTOCOLS=reality;; 4) PROTOCOLS=hysteria2;; 5) PROTOCOLS=tuic;; *) PROTOCOLS=ss2022;; esac; fi
+  if [ "$SNI_SET" -eq 0 ]; then printf "SNI [developer.apple.com]: " >/dev/tty; IFS= read -r ans </dev/tty || ans=; [ -n "$ans" ] && SNI=$ans; fi
+  printf "端口=%s  协议=%s  SNI=%s\n继续安装？[Y/n]: " "$PORT" "$PROTOCOLS" "$SNI" >/dev/tty
+  IFS= read -r ans </dev/tty || ans=; case "$ans" in n|N) exit 0;; esac
+fi
 case "$PORT" in *[!0-9]*|'') die 'port must be numeric';; esac
 [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die 'port out of range'
 [ "$(id -u)" -eq 0 ] || die 'run as root'
@@ -123,6 +136,7 @@ if command -v ufw >/dev/null 2>&1; then p=$PORT; while [ "$p" -lt "$port" ]; do 
 elif command -v firewall-cmd >/dev/null 2>&1; then p=$PORT; while [ "$p" -lt "$port" ]; do firewall-cmd --permanent --add-port="$p/tcp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$p/udp" >/dev/null 2>&1 || true; p=$((p+1)); done; firewall-cmd --reload >/dev/null 2>&1 || true
 else log 'no local firewall manager; UDP was not disabled; check provider rules'; fi
 echo "NODE_CONFIG=$OUT"; echo "PUBLIC_IPV6=$PUBLIC_V6"; [ -n "${SS_URI:-}" ] && echo "SS2022_URI=$SS_URI"; echo "PORTS=$PORT-$((port-1))"; ss -lntup 2>/dev/null | grep -E "(:$PORT|:$((port-1)))" || true
+
 
 
 
