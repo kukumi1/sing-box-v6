@@ -51,3 +51,16 @@ SNI [developer.apple.com]
 ```sh
 curl -fsSL https://raw.githubusercontent.com/kukumi1/sing-box-v6/main/install.sh | sh -s -- --yes
 ```
+
+## 管理快捷命令
+
+安装完成后会创建不易冲突的 `singbox-v6` 命令：
+
+```sh
+singbox-v6 status   # 服务状态
+singbox-v6 nodes    # 脚本管理的节点
+singbox-v6 ports    # TCP/UDP 监听
+singbox-v6 check    # 配置检查
+singbox-v6 logs     # 最近日志
+singbox-v6 restart   # 重启服务
+```
