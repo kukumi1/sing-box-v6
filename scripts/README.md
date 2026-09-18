@@ -34,3 +34,20 @@ rc-service sing-box-vps-node status
 ```
 
 如果监听正常但外部不可达，检查公网 IPv6、NAT 面板映射、云安全组和服务商 UDP 策略。`fdxx:`、`fcxx:`、`fe80:` 地址不可直接作为公网节点地址。
+
+## 交互式模式
+
+直接执行 `install.sh` 且终端可用时，会依次询问端口、协议、SNI 和最终确认：
+
+```text
+节点端口 [65432]
+协议 [1=ss2022, 2=anytls, 3=reality, 4=hysteria2, 5=tuic]
+SNI [developer.apple.com]
+继续安装？[Y/n]
+```
+
+脚本通过 `/dev/tty` 读取交互输入，因此 `curl | sh` 也可以显示提示。自动化或批量部署使用 `--yes`：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kukumi1/sing-box-v6/main/install.sh | sh -s -- --yes
+```
