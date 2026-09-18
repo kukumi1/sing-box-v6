@@ -135,6 +135,36 @@ else die 'no supported service manager found'; fi
 if command -v ufw >/dev/null 2>&1; then p=$PORT; while [ "$p" -lt "$port" ]; do ufw allow "$p/tcp" >/dev/null 2>&1 || true; ufw allow "$p/udp" >/dev/null 2>&1 || true; p=$((p+1)); done
 elif command -v firewall-cmd >/dev/null 2>&1; then p=$PORT; while [ "$p" -lt "$port" ]; do firewall-cmd --permanent --add-port="$p/tcp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$p/udp" >/dev/null 2>&1 || true; p=$((p+1)); done; firewall-cmd --reload >/dev/null 2>&1 || true
 else log 'no local firewall manager; UDP was not disabled; check provider rules'; fi
+cat >/usr/local/bin/singbox-v6 <<'HELPER'
+#!/bin/sh
+set -eu
+CONF_DIR=${SING_BOX_CONFIG_DIR:-/etc/sing-box}
+service_status(){
+  if command -v systemctl >/dev/null 2>&1; then systemctl "$1" sing-box
+  elif command -v rc-service >/dev/null 2>&1; then
+    if rc-service sing-box-vps-node status >/dev/null 2>&1; then rc-service sing-box-vps-node "$1"; else rc-service sing-box "$1"; fi
+  fi
+}
+case "${1:-help}" in
+  status) service_status status ;;
+  restart) service_status restart ;;
+  nodes) ls -1 "$CONF_DIR/conf.d"/vps-node-*.json 2>/dev/null || echo 'no managed nodes' ;;
+  ports) ss -lntup 2>/dev/null | grep -E 'sing-box|:([0-9]+)' || true ;;
+  check) sing-box check -D /var/lib/sing-box -c "$CONF_DIR/config.json" -C "$CONF_DIR/conf.d" ;;
+  logs) if command -v journalctl >/dev/null 2>&1; then journalctl -u sing-box -n 100 --no-pager; else tail -n 100 /var/log/sing-box.log 2>/dev/null || true; fi ;;
+  help|*) cat <<'USAGE'
+用法：singbox-v6 <命令>
+  status   查看 sing-box 服务状态
+  nodes    查看脚本创建的节点配置
+  ports    查看 TCP/UDP 监听端口
+  check    检查 sing-box 配置
+  logs     查看最近日志
+  restart  重启服务
+USAGE
+  ;;
+esac
+HELPER
+chmod 755 /usr/local/bin/singbox-v6
 echo "NODE_CONFIG=$OUT"; echo "PUBLIC_IPV6=$PUBLIC_V6"; [ -n "${SS_URI:-}" ] && echo "SS2022_URI=$SS_URI"; echo "PORTS=$PORT-$((port-1))"; ss -lntup 2>/dev/null | grep -E "(:$PORT|:$((port-1)))" || true
 
 
