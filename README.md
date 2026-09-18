@@ -5,7 +5,7 @@
 ## 快速开始
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/kukumi1/sing-box-v6/main/scripts/vps-node.sh | sh -s -- --port 65432 --protocols ss2022
+curl -fsSL https://raw.githubusercontent.com/kukumi1/sing-box-v6/main/install.sh | sh -s -- --port 65432 --protocols ss2022
 ```
 
 脚本默认开启 TCP/UDP 所需监听，不会禁止 UDP。详细参数见 [`scripts/README.md`](scripts/README.md)。
